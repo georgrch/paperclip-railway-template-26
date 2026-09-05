@@ -1,4 +1,4 @@
-FROM node:20-slim
+FROM node:24.11-bookworm-slim
 
 # Install gosu (privilege dropping in entrypoint) and ca-certificates.
 # ca-certificates is required: node:20-slim ships without the system CA bundle, and the
