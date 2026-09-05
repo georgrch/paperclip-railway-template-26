@@ -14,7 +14,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     build-essential \
     && rm -rf /var/lib/apt/lists/*
 
-# Install OpenCode CLI
+# Install OpenCode CLIiiii
 RUN npm install -g opencode-ai \
     && opencode --version
 
