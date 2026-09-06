@@ -1,0 +1,27 @@
+name: Codex cost patch checks
+on:
+  pull_request:
+  push:
+    branches: [main, master, 'fix/**']
+permissions:
+  contents: read
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24.11.0'
+      - run: npm install --omit=dev --package-lock=false
+      - run: npm test
+      - name: Check upstream compatibility (advisory)
+        continue-on-error: true
+        run: npm run test:integration
+      - run: npm run build
+      - name: Verify idempotence and installed module syntax
+        run: |
+          npm run build
+          node --check scripts/start.mjs
+      - name: Verify Railway Docker build
+        run: docker build --tag paperclip-cost-check .

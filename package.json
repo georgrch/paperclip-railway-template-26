@@ -5,7 +5,9 @@
   "private": true,
   "scripts": {
     "start": "node scripts/start.mjs",
-    "build": "echo 'No build step required'"
+    "build": "node scripts/patch-codex-costs.mjs",
+    "test": "node --test tests/codex-costs.test.mjs",
+    "test:integration": "node --test tests/adapter-integration.test.mjs"
   },
   "dependencies": {
     "paperclipai": "latest",

@@ -28,10 +28,14 @@ WORKDIR /app
 
 # Copy package files and install dependencies
 COPY package.json ./
-RUN npm install --omit=dev
+RUN npm install --omit=dev --package-lock=false
 
 # Copy application code
 COPY . .
+
+# Reapply optional cost reporting after every upstream install. Incompatible
+# adapter changes disable the patch with a warning, keeping updates possible.
+RUN npm test && npm run build
 
 # Give ownership of everything to the non-root user
 RUN chown -R paperclip:paperclip /app /home/paperclip
