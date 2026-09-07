@@ -8,6 +8,19 @@ permissions:
 jobs:
   verify:
     runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:17-alpine
+        env:
+          POSTGRES_DB: paperclip_backfill_test
+          POSTGRES_HOST_AUTH_METHOD: trust
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -15,6 +28,10 @@ jobs:
           node-version: '24.11.0'
       - run: npm install --omit=dev --package-lock=false
       - run: npm test
+      - name: Verify transactional cost backfill
+        env:
+          BACKFILL_TEST_DATABASE_URL: postgres://postgres@127.0.0.1:5432/paperclip_backfill_test
+        run: npm run test:backfill
       - name: Check upstream compatibility (advisory)
         continue-on-error: true
         run: npm run test:integration
@@ -25,3 +42,5 @@ jobs:
           node --check scripts/start.mjs
       - name: Verify Railway Docker build
         run: docker build --tag paperclip-cost-check .
+      - name: Verify standalone cost worker build
+        run: docker build --file Dockerfile.cost-worker --tag paperclip-cost-worker-check .

@@ -3,6 +3,20 @@ import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
 import { patchSource, SUPPORTED_VERSION } from "../scripts/patch-codex-costs.mjs";
 import { withCodexCostEstimate } from "../scripts/codex-costs.mjs";
+import { REQUIRED_COLUMNS } from "../worker/backfill.mjs";
+
+test("worker schema contract matches installed Paperclip tables", async () => {
+  const db = await import("@paperclipai/db");
+  const { getTableConfig } = await import("drizzle-orm/pg-core");
+  const tables = [db.heartbeatRuns, db.costEvents, db.agents, db.companies, db.agentRuntimeState, db.activityLog].map(getTableConfig);
+  for (const [name, required] of Object.entries(REQUIRED_COLUMNS)) {
+    const table = tables.find(table => table.name === name);
+    assert.ok(table, `missing installed table ${name}`);
+    for (const [name, type] of Object.entries(required)) {
+      assert.equal(table.columns.find(column => column.name === name)?.getSQLType(), type);
+    }
+  }
+});
 
 test("released ACP usage folding prices cache correctly", async () => {
   const { summarizeAcpxTurnUsage } = await import("@paperclipai/adapter-utils/acpx-engine/execute");

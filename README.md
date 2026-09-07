@@ -13,7 +13,7 @@ at image build time. Tested against `2026.831.1`, whose Codex CLI adapter return
 2. Review this branch and its CI checks. Merge only when ready to deploy;
    Railway may automatically deploy changes to your connected branch.
 3. In each affected Codex agent's adapter configuration, use an explicit
-   supported model (`gpt-5.6-sol`, `gpt-5.6-terra`, or `gpt-6-astra`). Both CLI
+   supported model (`gpt-5.6-sol`, `gpt-5.6-terra`, `gpt-5.6-luna`, or `gpt-6-astra`). Both CLI
    and ACP are supported when their token semantics pass compatibility checks.
    ACP remains the upstream default. Keep your existing API-key secrets.
    The patch does not change existing agent configurations for you.
@@ -36,11 +36,11 @@ the reported total. Run-level aggregates cannot identify per-request
 long-context premiums, Fast/Flex/Batch tiers, discounts or unreported usage;
 tool charges are excluded. Verify actual spend against your provider billing.
 Paperclip rounds costs to cents per run, so sub-cent runs can still show zero.
-Historical runs are unchanged; there is no automatic backfill.
+This patch only prices future runs. Use the optional worker below for historical runs.
 
 If an ACP run lacks its required token breakdown, it remains unpriced with an
 explanatory log; explicitly setting `"engine": "cli"` is an alternative.
-Pricing is an explicit three-model table in
+Pricing is an explicit four-model table in
 `scripts/codex-costs.mjs` with source links and the verification date. Unknown
 models remain unpriced instead of receiving a guessed price.
 
@@ -80,6 +80,105 @@ npm install --omit=dev --package-lock=false
 npm test
 npm run test:integration
 npm run build
+```
+
+### Historical costs and the optional Railway worker
+
+There are two independent components:
+
+- The adapter patch prices new runs as they finish in Paperclip.
+- The small worker in `worker/` periodically scans saved runs and repairs
+  existing **unpriced** ledger entries. It can run in its own Railway service,
+  including without deploying the adapter patch. It needs PostgreSQL access,
+  not an OpenAI key, Paperclip login, public domain, or persistent volume.
+
+Both share the same Sol/Terra/Luna/Astra rate table. Paperclip still comes from
+`paperclipai: latest`; this repository is its deployment wrapper, not a pinned
+fork of the Paperclip application. Changes to the original wrapper template
+still require normal Git synchronization. Neither component guarantees
+compatibility with every future upstream change.
+
+The worker defaults to **preview**: every 15 minutes it scans runs finished in
+the last seven days, excluding runs and ledger events newer than five minutes.
+It emits JSON lines containing run IDs, eligible estimates, skip reasons, and
+a summary. Preview uses read-only transactions and makes no writes. An explicit
+`COST_BACKFILL_MODE=apply` enables corrections.
+
+Eligibility requires a terminal run belonging to a Codex agent, one existing
+ledger event marked `unpriced` with zero cents, and matching recorded model,
+direct OpenAI API billing identity, and per-run token counts. CLI and ACP cache
+semantics are checked against the saved result. The worker never substitutes
+the agent's current model for the historical model. It skips real prices
+(including reported zero), subscriptions, unknown models, session totals,
+missing or conflicting usage, missing/duplicate ledger events, and existing
+estimates. These cases appear in the preview for review rather than being
+guessed. Agents subsequently switched away from Codex are excluded as well.
+
+In apply mode, each correction updates the existing cost event, the run's usage
+JSON, lifetime cost total, and applicable current-UTC-month spend counters in one
+transaction. Original event dates, token counts, and agent status are preserved.
+`resultJson.codexCostBackfill` and a `cost.backfilled` activity entry record the
+rate table, original zero/unpriced state, calculated amount, and application
+time. Row locks, rechecks and serializable transactions prevent two workers or
+repeated scans from charging twice. A failure rolls back that run's entire
+correction; earlier committed corrections remain and are skipped on restart.
+
+The corrected ledger is used by Paperclip's cost views and subsequent budget
+checks. The worker does not replay historical budget notifications or pause or
+resume agents itself. Monthly counters are adjusted by the added cents; they do
+not repair any unrelated preexisting accounting discrepancy. Native Paperclip
+cost recording also refreshes monthly caches from the ledger.
+
+The worker verifies the required database columns before scanning and stops on
+an incompatible schema. It never migrates the database and cannot block a
+Paperclip update. After updating Paperclip, review worker logs as well as app
+logs. Schema shape checks cannot prove that future accounting semantics remain
+the same.
+
+Historical estimates use the standard short-context rates verified on
+September 7, 2026, not a reconstructed historical price schedule. They exclude
+request-level context premiums, regional uplifts, special tiers, discounts and
+tools. Luna runs below half a cent can still display zero due to Paperclip's
+per-run cent rounding; they are marked priced and won't be processed again.
+
+#### Railway setup (after deployment approval)
+
+1. Add a separate service from this repository, using the approved branch and
+   repository root as its build context. Set
+   `RAILWAY_DOCKERFILE_PATH=Dockerfile.cost-worker`. Railway documents custom
+   Dockerfile paths in its [Dockerfile guide](https://docs.railway.com/builds/dockerfiles).
+2. Reference the existing PostgreSQL service's private `DATABASE_URL` in the
+   worker's variables. Keep credentials in Railway. The worker uses the `public`
+   schema. Leave the Docker start command unchanged and configure no HTTP
+   healthcheck or public domain: this is a background process.
+3. Start in preview mode and review the run-level output and summary. Set a
+   fixed `COST_BACKFILL_SINCE` if more than the last seven days are needed.
+4. After reviewing the production preview and approving writes, set
+   `COST_BACKFILL_MODE=apply`. Repeated scans repair only newly eligible entries.
+   Use `COST_BACKFILL_INTERVAL_SECONDS=0` for a one-time job, including a Railway
+   scheduled job; otherwise the process stays alive and sleeps between scans.
+
+| Variable | Default | Purpose |
+| --- | --- | --- |
+| `DATABASE_URL` | required | Existing Paperclip PostgreSQL connection |
+| `COST_BACKFILL_MODE` | `preview` | `preview` or `apply` |
+| `COST_BACKFILL_SINCE` | rolling seven days | Fixed ISO date, e.g. `2026-09-01T00:00:00Z`; `1970-01-01` scans all history |
+| `COST_BACKFILL_INTERVAL_SECONDS` | `900` | Seconds after each scan; `0` runs once; otherwise at least `60` |
+| `COST_BACKFILL_COMPANY_ID` | all companies | Optional company UUID to restrict the scan |
+
+To stop writes, switch the worker to preview or stop its service. The adapter's
+`PAPERCLIP_CODEX_COST_ESTIMATES` switch does not control this independent worker.
+Stopping or rolling back the worker image does not undo committed corrections;
+their IDs and original values are retained in the audit records for a reviewed
+reversal if needed.
+
+Worker checks use a disposable **local** PostgreSQL database named
+`paperclip_backfill_test`. The test command rejects remote hosts and never reads
+the production `DATABASE_URL`:
+
+```sh
+BACKFILL_TEST_DATABASE_URL=postgres://postgres@127.0.0.1:5432/paperclip_backfill_test npm run test:backfill
+docker build -f Dockerfile.cost-worker -t paperclip-cost-worker-check .
 ```
 
 ---

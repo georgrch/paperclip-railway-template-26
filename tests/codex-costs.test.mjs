@@ -14,8 +14,9 @@ const run = (overrides = {}) => ({
 test("Sol charges cache once and returns USD, not cents", () => {
   assert.equal(estimateCodexCost(run()).costUsd, 0.212);
 });
-test("Terra and Astra rates", () => {
+test("Terra, Luna and Astra rates", () => {
   assert.equal(estimateCodexCost(run({ model: "gpt-5.6-terra" })).costUsd, 0.116);
+  assert.equal(estimateCodexCost(run({ model: "gpt-5.6-luna" })).costUsd, 0.0116);
   assert.equal(estimateCodexCost(run({ model: "gpt-6-astra" })).costUsd, 0.53);
 });
 test("non-cached and fully cached input", () => {

@@ -6,13 +6,16 @@
   "scripts": {
     "start": "node scripts/start.mjs",
     "build": "node scripts/patch-codex-costs.mjs",
-    "test": "node --test tests/codex-costs.test.mjs",
-    "test:integration": "node --test tests/adapter-integration.test.mjs"
+    "test": "node --test tests/codex-costs.test.mjs tests/backfill.test.mjs",
+    "test:integration": "node --test tests/adapter-integration.test.mjs",
+    "test:backfill": "node --test tests/backfill-postgres.test.mjs",
+    "costs:backfill": "node worker/run.mjs"
   },
   "dependencies": {
     "paperclipai": "latest",
     "@anthropic-ai/claude-code": "latest",
-    "@openai/codex": "latest"
+    "@openai/codex": "latest",
+    "postgres": "^3.4.9"
   },
   "engines": {
     "node": ">=20"

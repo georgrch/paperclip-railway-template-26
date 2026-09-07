@@ -1,4 +1,5 @@
-// Standard OpenAI API rates, USD / million tokens; checked 2026-09-06.
+// Standard OpenAI API rates, USD / million tokens; checked 2026-09-07.
+// https://developers.openai.com/api/docs/pricing
 // https://developers.openai.com/api/docs/models/gpt-5.6-sol
 // https://developers.openai.com/api/docs/models/gpt-5.6-terra
 // https://developers.openai.com/api/docs/models/gpt-6-astra
@@ -6,6 +7,7 @@
 export const PRICES = Object.freeze({
   "gpt-5.6-sol": Object.freeze({ input: 4, cached: 0.4, output: 20 }),
   "gpt-5.6-terra": Object.freeze({ input: 2, cached: 0.2, output: 12 }),
+  "gpt-5.6-luna": Object.freeze({ input: 0.2, cached: 0.02, output: 1.2 }),
   "gpt-6-astra": Object.freeze({ input: 10, cached: 1, output: 50 }),
 });
 // The installer verifies each installed runtime's token semantics independently.
@@ -73,7 +75,7 @@ export async function withCodexCostEstimate(result, ctx, env = process.env) {
       ...result.resultJson,
       codexCostEstimate: {
         source: "railway-standard-rate-estimate-v1",
-        pricingDate: "2026-09-06",
+        pricingDate: "2026-09-07",
         engine: estimate.engine,
         ratesUsdPerMillion: estimate.rates,
         costUsd: estimate.costUsd,
