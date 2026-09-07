@@ -2,6 +2,8 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { planBackfill } from "../worker/estimate.mjs";
 import { fixture } from "./backfill-fixture.mjs";
+import { spawnSync } from "node:child_process";
+import { fileURLToPath } from "node:url";
 
 for (const engine of ["cli", "acp"]) {
   for (const [model, usd, cents] of [["gpt-5.6-sol", 0.212, 21], ["gpt-5.6-terra", 0.116, 12], ["gpt-5.6-luna", 0.0116, 1], ["gpt-6-astra", 0.53, 53]]) {
@@ -47,4 +49,14 @@ test("does not guess when the ledger event is missing or duplicated", () => {
   const { run, event } = fixture();
   assert.match(planBackfill(run, []).reason, /no ledger event/);
   assert.match(planBackfill(run, [event, event]).reason, /multiple/);
+});
+
+test("an invalid connection URL cannot expose credentials in worker logs", () => {
+  const result = spawnSync(process.execPath, [fileURLToPath(new URL("../worker/run.mjs", import.meta.url))], {
+    env: { DATABASE_URL: "postgresql://postgres:fixture-secret@:/railway", COST_BACKFILL_INTERVAL_SECONDS: "0" },
+    encoding: "utf8",
+  });
+  assert.equal(result.status, 1);
+  assert.doesNotMatch(result.stderr, /fixture-secret|postgresql:\/\//);
+  assert.equal(JSON.parse(result.stderr).code, "ERR_INVALID_URL");
 });

@@ -16,13 +16,14 @@ const companyId = env.COST_BACKFILL_COMPANY_ID || null;
 if (companyId && !/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(companyId)) {
   throw new Error("COST_BACKFILL_COMPANY_ID must be a UUID");
 }
-const sql = postgres(env.DATABASE_URL, {
-  max: 2, connect_timeout: 10,
-  connection: { application_name: "paperclip-cost-backfill", statement_timeout: 30_000, lock_timeout: 5_000 },
-});
+let sql;
 const controller = new AbortController();
 for (const signal of ["SIGTERM", "SIGINT"]) process.once(signal, () => controller.abort());
 try {
+  sql = postgres(env.DATABASE_URL, {
+    max: 2, connect_timeout: 10,
+    connection: { application_name: "paperclip-cost-backfill", statement_timeout: 30_000, lock_timeout: 5_000 },
+  });
   do {
     const since = fixedSince ?? new Date(Date.now() - 7 * 24 * 60 * 60_000);
     const summary = await scanBackfill(sql, {
@@ -40,5 +41,5 @@ try {
   console.error(JSON.stringify({ type: "error", code: error.code ?? "BACKFILL_STOPPED", message: "Scan stopped; no partial transaction is retained. Check database access and schema compatibility before retrying." }));
   process.exitCode = 1;
 } finally {
-  await sql.end({ timeout: 5 });
+  await sql?.end({ timeout: 5 });
 }
