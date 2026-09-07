@@ -6,7 +6,7 @@ const env = process.env;
 const mode = env.COST_BACKFILL_MODE ?? "preview";
 if (!["preview", "apply"].includes(mode)) throw new Error("COST_BACKFILL_MODE must be preview or apply");
 if (!env.DATABASE_URL) throw new Error("DATABASE_URL is required");
-const interval = Number(env.COST_BACKFILL_INTERVAL_SECONDS ?? 900);
+const interval = Number(env.COST_BACKFILL_INTERVAL_SECONDS ?? 0);
 if (!Number.isSafeInteger(interval) || interval < 0 || (interval > 0 && interval < 60)) {
   throw new Error("COST_BACKFILL_INTERVAL_SECONDS must be 0 (one scan) or at least 60");
 }

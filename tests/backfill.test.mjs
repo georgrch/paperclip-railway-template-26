@@ -4,6 +4,8 @@ import { planBackfill } from "../worker/estimate.mjs";
 import { fixture } from "./backfill-fixture.mjs";
 import { spawnSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
+import { EventEmitter } from "node:events";
+import { createStartupBackfill } from "../scripts/startup-backfill.mjs";
 
 for (const engine of ["cli", "acp"]) {
   for (const [model, usd, cents] of [["gpt-5.6-sol", 0.212, 21], ["gpt-5.6-terra", 0.116, 12], ["gpt-5.6-luna", 0.0116, 1], ["gpt-6-astra", 0.53, 53]]) {
@@ -59,4 +61,27 @@ test("an invalid connection URL cannot expose credentials in worker logs", () =>
   assert.equal(result.status, 1);
   assert.doesNotMatch(result.stderr, /fixture-secret|postgresql:\/\//);
   assert.equal(JSON.parse(result.stderr).code, "ERR_INVALID_URL");
+});
+
+test("startup backfill is opt-in and forces one scan even with a recurring interval configured", () => {
+  const calls = [];
+  const spawnWorker = (...args) => { calls.push(args); return new EventEmitter(); };
+  createStartupBackfill({ env: {}, spawnWorker, log() {} })();
+  assert.equal(calls.length, 0);
+  const start = createStartupBackfill({
+    env: { PAPERCLIP_CODEX_BACKFILL_ON_START: "1", COST_BACKFILL_MODE: "preview", COST_BACKFILL_INTERVAL_SECONDS: "900" },
+    spawnWorker, log() {},
+  });
+  start(); start();
+  assert.equal(calls.length, 1);
+  assert.equal(calls[0][2].env.COST_BACKFILL_INTERVAL_SECONDS, "0");
+  assert.equal(calls[0][2].env.COST_BACKFILL_MODE, "preview");
+});
+
+test("optional startup scan failure does not throw into Paperclip startup", () => {
+  const start = createStartupBackfill({
+    env: { PAPERCLIP_CODEX_BACKFILL_ON_START: "1" },
+    spawnWorker() { throw new Error("spawn failed"); }, log() {},
+  });
+  assert.doesNotThrow(start);
 });

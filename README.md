@@ -87,9 +87,9 @@ npm run build
 There are two independent components:
 
 - The adapter patch prices new runs as they finish in Paperclip.
-- The small worker in `worker/` periodically scans saved runs and repairs
-  existing **unpriced** ledger entries. It can run in its own Railway service,
-  including without deploying the adapter patch. It needs PostgreSQL access,
+- The small worker in `worker/` scans saved runs once and repairs
+  existing **unpriced** ledger entries. It can run after startup in the existing
+  Railway service, or independently if desired. It needs PostgreSQL access,
   not an OpenAI key, Paperclip login, public domain, or persistent volume.
 
 Both share the same Sol/Terra/Luna/Astra rate table. Paperclip still comes from
@@ -98,7 +98,7 @@ fork of the Paperclip application. Changes to the original wrapper template
 still require normal Git synchronization. Neither component guarantees
 compatibility with every future upstream change.
 
-The worker defaults to **preview**: every 15 minutes it scans runs finished in
+The worker defaults to a **single preview scan** of runs finished in
 the last seven days, excluding runs and ledger events newer than five minutes.
 It emits JSON lines containing run IDs, eligible estimates, skip reasons, and
 a summary. Preview uses read-only transactions and makes no writes. An explicit
@@ -143,30 +143,49 @@ per-run cent rounding; they are marked priced and won't be processed again.
 
 #### Railway setup (after deployment approval)
 
-1. Add a separate service from this repository, using the approved branch and
-   repository root as its build context. Set
-   `RAILWAY_DOCKERFILE_PATH=Dockerfile.cost-worker`. Railway documents custom
-   Dockerfile paths in its [Dockerfile guide](https://docs.railway.com/builds/dockerfiles).
-2. Reference the existing PostgreSQL service's private `DATABASE_URL` in the
-   worker's variables. Keep credentials in Railway. The worker uses the `public`
-   schema. Leave the Docker start command unchanged and configure no HTTP
-   healthcheck or public domain: this is a background process.
-3. Start in preview mode and review the run-level output and summary. Set a
-   fixed `COST_BACKFILL_SINCE` if more than the last seven days are needed.
-4. After reviewing the production preview and approving writes, set
-   `COST_BACKFILL_MODE=apply`. Repeated scans repair only newly eligible entries.
-   Use `COST_BACKFILL_INTERVAL_SECONDS=0` for a one-time job, including a Railway
-   scheduled job; otherwise the process stays alive and sleeps between scans.
+Use the **existing Paperclip service**, with its existing Dockerfile, start
+command and `DATABASE_URL`. No separate service or SSH setup is needed.
+
+1. Deploy the approved version of this branch/PR. Set these service variables:
+
+   ```text
+   PAPERCLIP_CODEX_BACKFILL_ON_START=1
+   COST_BACKFILL_MODE=preview
+   COST_BACKFILL_SINCE=2026-09-01T00:00:00Z
+   ```
+
+2. Once Paperclip is ready and database migrations have completed, the wrapper
+   launches one scan while the app stays available. Review the Railway logs for
+   `would_update`, skip reasons, and the final `summary`. Nothing is written in
+   preview mode. Choose another start date if needed.
+3. To apply the reviewed estimates, change `COST_BACKFILL_MODE=apply` and redeploy
+   or restart. The scan updates eligible historical records, prints its summary,
+   then exits. It does not run every 15 minutes.
+4. After success, remove `PAPERCLIP_CODEX_BACKFILL_ON_START` (or set it to `0`).
+   Leaving it enabled only causes another single, idempotent scan on a later
+   app startup. Already priced runs are skipped. Future runs are priced by the
+   adapter patch regardless of this startup flag.
+
+The startup hook is disabled by default and forces a one-time run even if a
+recurring interval was previously configured. A failed scan is logged without
+stopping Paperclip. For a manual run inside the deployed container, use
+`npm run costs:backfill` with the same variables; it also runs once by default.
+
+The separate `Dockerfile.cost-worker` remains available for standalone jobs.
+Railway supports selecting it using `RAILWAY_DOCKERFILE_PATH`, as described in
+its [Dockerfile guide](https://docs.railway.com/builds/dockerfiles). It is optional.
 
 | Variable | Default | Purpose |
 | --- | --- | --- |
 | `DATABASE_URL` | required | Existing Paperclip PostgreSQL connection |
+| `PAPERCLIP_CODEX_BACKFILL_ON_START` | disabled | Set `1` to run one scan when Paperclip becomes ready |
 | `COST_BACKFILL_MODE` | `preview` | `preview` or `apply` |
 | `COST_BACKFILL_SINCE` | rolling seven days | Fixed ISO date, e.g. `2026-09-01T00:00:00Z`; `1970-01-01` scans all history |
-| `COST_BACKFILL_INTERVAL_SECONDS` | `900` | Seconds after each scan; `0` runs once; otherwise at least `60` |
+| `COST_BACKFILL_INTERVAL_SECONDS` | `0` | Standalone worker only: `0` runs once; optional recurring interval must be at least `60` |
 | `COST_BACKFILL_COMPANY_ID` | all companies | Optional company UUID to restrict the scan |
 
-To stop writes, switch the worker to preview or stop its service. The adapter's
+To stop future startup scans, remove the startup flag. To preview without writes,
+set the mode to preview. The adapter's
 `PAPERCLIP_CODEX_COST_ESTIMATES` switch does not control this independent worker.
 Stopping or rolling back the worker image does not undo committed corrections;
 their IDs and original values are retained in the audit records for a reviewed
