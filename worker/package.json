@@ -1,0 +1,6 @@
+{
+  "name": "paperclip-cost-backfill-worker",
+  "private": true,
+  "type": "module",
+  "dependencies": { "postgres": "^3.4.9" }
+}

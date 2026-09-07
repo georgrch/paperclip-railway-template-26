@@ -1,0 +1,8 @@
+FROM node:24-bookworm-slim
+WORKDIR /app
+COPY worker/package.json ./package.json
+RUN npm install --omit=dev --package-lock=false
+COPY scripts/codex-costs.mjs ./scripts/codex-costs.mjs
+COPY worker/*.mjs ./worker/
+USER node
+CMD ["node", "worker/run.mjs"]

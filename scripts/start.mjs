@@ -23,6 +23,9 @@ import { spawn } from "child_process";
 import { join, dirname } from "path";
 import { fileURLToPath } from "url";
 import { homedir } from "os";
+import { createStartupBackfill } from "./startup-backfill.mjs";
+
+const runStartupBackfill = createStartupBackfill();
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 
@@ -210,6 +213,8 @@ function startPaperclip() {
     if (!paperclipReady && (text.includes("Server listening on") || text.includes("server listening"))) {
       paperclipReady = true;
       console.log(`\n✅ Paperclip ready — proxying :${PUBLIC_PORT} → :${PAPERCLIP_PORT}\n`);
+      // Run only after Paperclip has started and applied its database migrations.
+      runStartupBackfill();
 
       // Current Paperclip versions no longer print the first-admin bootstrap invite on `run`
       // (they show a "waiting on first admin" page instead). If we didn't capture one from
